@@ -27,6 +27,10 @@ header {
     padding: 1rem 0;
     text-align: center;
     position: fixed; top: 0;
+
+    * {
+        display: inline;
+    }
 }
 
 .login-section {
@@ -56,6 +60,12 @@ header {
             width: 100%;
             background-color: var(--background-light);
             box-shadow: 0 0px 2px rgba(0, 0, 0, 0.1);
+
+            &:focus {
+                outline: none;
+                border-color: var(--primary);
+                box-shadow: 0 0 5px rgba(16, 201, 142, 0.5);
+            }   
         }
 
         button {
@@ -69,13 +79,13 @@ header {
             transition: background-color 0.3s ease;
 
             &:hover {
-                background-color: #13eca4;
+                background-color: #0eab77;
             }
         }
 
         button:nth-of-type(2) {
             background-color: #e6f8ed;
-            color: #12be85;
+            color: #0eab77;
 
             &:hover {
                 background-color: #b8e6ce;
