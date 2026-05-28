@@ -1,253 +1,196 @@
 # CoSpend — Roadmap
 
-## Philosophy
+## Approach
 
-This project is built **phase by phase, with full understanding at each step**.
-
-No phase begins until the previous one is complete and understood. Each phase is small enough to reason about entirely. Implementation details are defined during execution, not upfront — this document stays intentionally high-level so it remains stable as the project evolves.
+Incremental delivery, one phase per domain layer. Each phase ships a independently reviewable slice of the application. No phase introduces speculative infrastructure — only what the current feature set requires.
 
 ---
 
-## Phases
-
----
-
-### Phase 0 — Project Foundation
+## Phase 0 — Foundation & Tooling
 
 **Objective**
-Understand the full-stack project structure and make explicit, conscious decisions about every tooling choice before writing any application code.
+Establish the full-stack project structure with all tooling configured and a clean baseline build.
 
-**Expected knowledge gained**
-- Why Angular and Express live in separate directories (separation of concerns, independent deploy targets)
-- What each configuration file does (`angular.json`, `tsconfig.json`, `package.json`, `tailwind.config.js`)
-- How environment variables work in both Angular (build-time replacement) and Node.js (runtime)
-- Why Docker Compose is used for local development and what it replaces
-- How PostCSS processes Tailwind at build time
+**Deliverables**
+- Angular 21 project: standalone components, strict TypeScript, TailwindCSS v3 + PostCSS
+- Express project: folder structure, nodemon, environment validation via Zod on startup
+- Docker Compose: PostgreSQL 16 for local development
+- `vercel.json` with SPA rewrite for HTML5 routing
+- Angular `environment.ts` / `environment.prod.ts` with build-time file replacement wired in `angular.json`
+- `.gitignore` covering `node_modules`, `dist`, `.angular`, `.env`
 
-**Main deliverables**
-- Scaffolded Angular project with Tailwind configured and building cleanly
-- Scaffolded Express project with a working `/health` endpoint
-- Docker Compose file running PostgreSQL locally
-- Environment variable handling in both apps (dev vs. production)
-- `vercel.json` with HTML5 routing rewrite rule explained
-- `.gitignore` covering generated files, secrets, and build output
-
-**Prerequisites**
-- Node.js ≥ 20, npm, Docker installed
-- Basic familiarity with TypeScript and JavaScript
+**Notes**
+- Angular uses the `@angular/build:application` builder (esbuild-based, default in v17+)
+- Backend stays plain JavaScript — TypeScript adds friction without meaningful gain for an Express API at this scale
+- Tailwind v3 over v4: better Angular CLI integration, more ecosystem stability at time of writing
 
 ---
 
-### Phase 1 — Database Design
+## Phase 1 — Data Model & Migrations
 
 **Objective**
-Design the full PostgreSQL schema before writing any application code. Understand the data model deeply, because every feature built later depends on it.
+Define the complete PostgreSQL schema upfront. Every subsequent phase depends on this foundation being correct.
 
-**Expected knowledge gained**
-- How to translate real-world domain concepts into relational tables
-- Primary keys: UUID vs. serial — when to use each and why
-- Foreign keys, `ON DELETE` strategies, and their implications
-- Junction tables for many-to-many relationships (group members)
-- Why money should be stored as `NUMERIC(12,2)`, not `FLOAT`
-- How to write SQL migrations and why order matters
-- Index design: when indexes help, when they hurt
+**Deliverables**
+- Full schema: `users`, `groups`, `group_members`, `expenses`, `expense_splits`, `settlements`
+- `001_initial.sql` migration with constraints, enums, and indexes
+- `migrate.js` runner applying files in alphabetical order
+- `npm run migrate` script
 
-**Main deliverables**
-- Entity–relationship diagram (documented in comments or a diagram file)
-- `001_initial.sql` migration script covering all tables
-- A migration runner (`npm run migrate`) that applies files in order
-- A clear explanation in code comments of why each constraint exists
-
-**Prerequisites**
-- Phase 0 complete
+**Notes**
+- UUIDs (`uuid-ossp`) as primary keys — avoids sequential ID leakage, plays well with distributed inserts
+- `NUMERIC(12,2)` for all monetary amounts — `FLOAT` is unsuitable for financial data
+- `expense_splits` stores the resolved monetary amount per participant, not a ratio — simplifies every balance query downstream
+- `ON DELETE CASCADE` on group-owned resources; `ON DELETE RESTRICT` on `users` to prevent silent data loss
 
 ---
 
-### Phase 2 — Authentication
+## Phase 2 — Authentication
 
 **Objective**
-Build secure user registration and login, end to end, with a thorough understanding of every decision made.
+Stateless JWT authentication, end to end.
 
-**Expected knowledge gained**
-- How JWT works: structure (header, payload, signature), signing, verification, expiry
-- Why we hash passwords with bcrypt and what the cost factor means
-- Stateless vs. stateful authentication — trade-offs for a SPA
-- Angular `HttpInterceptor`: what it is and when to use one
-- Angular route guards: `CanActivate` — how they integrate with the router
-- How Angular Signals replace `BehaviorSubject` for local state
-- Input validation with Zod: why schema-first validation at the boundary
-- Rate limiting on auth endpoints: why and how
+**Deliverables**
+- `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`
+- bcrypt password hashing (cost factor 12)
+- Zod validation on all auth payloads
+- Rate limiting on auth endpoints (20 req / 15 min)
+- Angular `AuthService` with `token` and `currentUser` signals
+- `JwtInterceptor` (functional interceptor, `withInterceptors`)
+- `authGuard` and `guestGuard` as functional guards
 
-**Main deliverables**
-- `POST /api/auth/register` and `POST /api/auth/login` endpoints
-- `AuthService` holding `token` and `currentUser` as signals
-- `JwtInterceptor` attaching the token to every outgoing request
-- `authGuard` and `guestGuard` protecting routes
-- Login and Register components with reactive forms and validation feedback
-
-**Prerequisites**
-- Phase 1 complete (users table exists)
+**Notes**
+- Long-lived access token (30d), no refresh token — appropriate simplification for an MVP without user-facing session management requirements
+- Token stored in `localStorage` — acknowledged trade-off vs. `httpOnly` cookie; acceptable for a portfolio project without a dedicated BFF
+- `AuthService` state is signal-based: `isAuthenticated = computed(() => !!this.token())`
 
 ---
 
-### Phase 3 — Groups & Members
+## Phase 3 — Groups & Members
 
 **Objective**
-Build the group management feature, establishing the patterns that all future features will follow.
+Core group management with per-group balance computation.
 
-**Expected knowledge gained**
-- REST resource design: URLs as nouns, HTTP verbs as actions
-- Nested routes (`/groups/:id/members`) and when they make sense
-- Angular lazy-loaded routes: why they improve initial load time
-- The Angular service layer: why components should not call `HttpClient` directly
-- Reactive state with `signal()` and `computed()` — when each is appropriate
-- Optimistic UI updates: how to apply changes before the server confirms
-- PostgreSQL transactions: when and why to wrap multiple queries
-
-**Main deliverables**
-- Full CRUD for groups (`GET`, `POST`, `PATCH`, `DELETE`)
+**Deliverables**
+- Groups CRUD (`GET`, `POST`, `PATCH`, `DELETE`)
+- `PATCH /api/groups/:id/favorite` — per-user favourite flag
 - Member management: add by email, list, remove
-- Favourite toggle with optimistic update
-- Dashboard component: total balance, favourite groups, all groups list
-- `LayoutComponent` with header, dark-mode toggle, and sign-out
+- Balance included in `GET /api/groups` and `GET /api/groups/:id` — single SQL query, not computed in application code
+- Dashboard: total balance, favourite groups, all groups list
+- Group creation form
+- `LayoutComponent` with header, dark-mode toggle, sign-out
 
-**Prerequisites**
-- Phase 2 complete (authenticated user exists)
-
----
-
-### Phase 4 — Expenses
-
-**Objective**
-Implement expense creation and listing with equal splitting, going deep on form design and monetary arithmetic correctness.
-
-**Expected knowledge gained**
-- Angular Reactive Forms: `FormBuilder`, `Validators`, typed controls
-- Why floating-point arithmetic is dangerous for money — and how to handle rounding
-- PostgreSQL `NUMERIC` vs `FLOAT`: the practical difference
-- Database transactions for multi-table writes (expense + splits in one atomic operation)
-- Computed signals: deriving UI state (share per person) from form values in real time
-- API query parameters for filtering: how to design flexible, safe filter endpoints
-- Zod validation for complex payloads (arrays, conditional fields)
-
-**Main deliverables**
-- `POST /api/groups/:id/expenses` creating expense and splits atomically
-- `GET /api/groups/:id/expenses` with category/month/payer filters
-- `DELETE /api/groups/:id/expenses/:id` (creator only)
-- Expense form: amount, description, category picker, paid-by, participant checkboxes, date
-- Group detail page: tabbed view of expenses and members
-
-**Prerequisites**
-- Phase 3 complete
+**Notes**
+- Balance SQL joins `expenses`, `expense_splits`, and `settlements` in one query per group — avoids N+1 and keeps balance logic in one place
+- Favourite toggle uses an optimistic update pattern: update signal immediately, revert on API error
+- Lazy-loaded routes from this phase forward — each feature directory maps to one route chunk
 
 ---
 
-### Phase 5 — Settlement Algorithm
+## Phase 4 — Expenses
 
 **Objective**
-Build the debt-minimisation feature, learning how to design and test a non-trivial algorithm as a pure function.
+Expense creation with equal splitting and per-group expense history.
 
-**Expected knowledge gained**
-- What "net balance" means and how to compute it in a single SQL query
-- Greedy algorithms: when they are optimal, when they are not
-- Pure functions: why isolating logic from I/O makes it far easier to test
-- Unit testing with Jest: what makes a good unit test
-- The difference between a suggested settlement (calculated) and a recorded settlement (persisted)
-- Why separating `settlement.algorithm.js` from `settlement.service.js` matters
+**Deliverables**
+- `POST /api/groups/:id/expenses` — atomic: inserts `expenses` + `expense_splits` in a transaction
+- `GET /api/groups/:id/expenses` — filterable by `category`, `month`, `paidBy`
+- `DELETE /api/groups/:id/expenses/:id` — creator only
+- Expense form: amount, description, category (8 types), paid-by, participant selection, date
+- Live per-person share preview via `computed()` signal
+- Group detail: tabbed expenses / members view, category filter chips
 
-**Main deliverables**
-- `settlement.algorithm.js`: pure function, fully unit-tested
+**Notes**
+- Rounding: equal split distributes remainder (≤ 1 cent) to the first participant — keeps `SUM(splits) == expense.amount` exact
+- Only equal split in MVP — schema has a `split_type` enum ready for exact/percentage modes post-MVP
+- Filters are passed as query params to the API, not applied client-side — keeps the frontend stateless and the dataset bounded
+
+---
+
+## Phase 5 — Settlement Engine
+
+**Objective**
+Debt-minimisation algorithm and settlement recording.
+
+**Deliverables**
+- `settlement.algorithm.js` — pure function, no I/O dependencies
 - `GET /api/groups/:id/balances` — per-member net balance
-- `GET /api/groups/:id/settlements/suggested` — optimal payment plan
+- `GET /api/groups/:id/settlements/suggested` — optimal transaction list
 - `POST /api/groups/:id/settlements` — record a payment
-- Settlements UI: balance summary, suggested payments, mark-as-paid, history
+- `GET /api/groups/:id/settlements` — payment history
+- Settlements view: balance summary, suggested payments, mark-as-paid, history tab
+- Jest unit tests for the algorithm
 
-**Prerequisites**
-- Phase 4 complete
-
----
-
-### Phase 6 — UI Polish & Dark Mode
-
-**Objective**
-Improve the visual quality and user experience, learning how to layer progressive enhancement onto a working application.
-
-**Expected knowledge gained**
-- TailwindCSS class-based dark mode vs. media-query dark mode — trade-offs
-- `localStorage` for persisting UI preferences without a database round-trip
-- Skeleton loading states: why they feel better than spinners
-- Angular animations: `@angular/animations` basics for route and element transitions
-- Toast notifications: an event-driven approach without global state
-- Mobile-first CSS: designing for the smallest screen first
-
-**Main deliverables**
-- Dark mode toggle, preference persisted across sessions
-- Loading skeletons on all data-fetching views
-- Toast notification system for success and error feedback
-- Responsive layout validated on mobile viewport
-- Page titles set via Angular `Title` service on each route
-
-**Prerequisites**
-- Phase 5 complete (all features working, even if visually rough)
+**Notes**
+- Algorithm: greedy O(n log n) — separate creditors and debtors, match largest against largest. Optimal for the general case with small group sizes (n < 50)
+- Separating the pure function from `settlement.service.js` (which touches the DB) is what makes it trivially testable without mocking
+- Suggested settlements are ephemeral (computed on request); only recorded settlements are persisted
 
 ---
 
-### Phase 7 — Testing
+## Phase 6 — UI Polish & Dark Mode
 
 **Objective**
-Add automated tests at multiple levels and understand the distinct purpose of each kind.
+Production-quality UX: loading states, dark mode, notifications, responsive layout.
 
-**Expected knowledge gained**
-- The testing pyramid: unit vs. integration vs. E2E — what each protects against
-- Angular `TestBed`: how to test components and services in isolation
-- Mocking HTTP with `HttpClientTestingModule`
-- Playwright: browser automation, selectors, and writing stable tests
-- GitHub Actions: defining a CI workflow that runs on every push
-- What to test and what not to — avoiding tests that only duplicate the implementation
+**Deliverables**
+- Dark mode: class-based (`dark:` prefix), `ThemeService` persists preference in `localStorage`, respects `prefers-color-scheme` on first visit
+- Skeleton loading states on all data-fetching views
+- Toast notification system for user feedback (success / error)
+- Expense filter UI wired to API (category, month, payer)
+- "Add member" UI in the Members tab
+- Page titles via Angular `Title` service
+- Responsive layout validated at mobile viewport
 
-**Main deliverables**
-- Jest unit tests: settlement algorithm, auth controller, key validators
-- Angular `TestBed` tests: `AuthService`, `ThemeService`
-- Playwright E2E suite: register → create group → add expense → settle up
-- GitHub Actions workflow: build + test on every PR push
-
-**Prerequisites**
-- Phase 6 complete
+**Notes**
+- Toast system uses a signal-based queue in a singleton service — no global state management library needed at this scale
+- Skeletons rather than spinners: avoids layout shift and feels more native on mobile
 
 ---
 
-### Phase 8 — Deployment
+## Phase 7 — Testing & CI
 
 **Objective**
-Ship the application to production cloud services and understand every environment difference between dev and prod.
+Automated quality gates at unit and E2E level.
 
-**Expected knowledge gained**
-- How Vercel serves an Angular SPA (build output, rewrite rules, CDN caching)
-- How Render/Railway runs a Node.js process (start command, env vars, health checks)
-- Neon's serverless PostgreSQL: connection pooling differences vs. a traditional DB
-- CORS: why it exists, how to configure it correctly for a split frontend/backend deploy
-- SSL in production: why `sslmode=require` matters for database connections
-- Environment parity: keeping dev and prod as similar as possible
+**Deliverables**
+- Jest: settlement algorithm, auth controller, Zod validators
+- Angular `TestBed`: `AuthService`, `ThemeService`
+- Playwright E2E: register → create group → add expense → settle up → verify balance is zero
+- GitHub Actions workflow: lint + build + test on every PR push
 
-**Main deliverables**
-- Frontend live on Vercel with correct SPA routing
-- Backend live on Render/Railway with health check passing
-- Neon PostgreSQL provisioned with migrations applied
+**Notes**
+- E2E tests cover the golden path and the one critical invariant: balances net to zero after settling
+- No snapshot tests — they couple tests to markup, not behaviour
+- CI runs `ng build --configuration production` to catch build-time type errors that dev builds skip
+
+---
+
+## Phase 8 — Production Deployment
+
+**Objective**
+Live deployment on free-tier cloud with production configuration correct.
+
+**Deliverables**
+- Neon PostgreSQL provisioned, migrations applied, connection string with `sslmode=require`
+- Backend deployed to Render/Railway, health check passing, env vars set
+- Frontend deployed to Vercel, `vercel.json` SPA rewrite active, `apiUrl` pointing to backend
+- CORS origin updated to Vercel domain
 - README updated with live URLs
-- Production environment variables documented (without secrets)
 
-**Prerequisites**
-- Phase 7 complete
+**Notes**
+- Neon uses connection pooling differently from a traditional PostgreSQL server — `pg` pool settings need to account for serverless connection limits
+- `NODE_ENV=production` triggers SSL in the pool config (`rejectUnauthorized: false` for Neon's self-signed cert is acceptable)
 
 ---
 
-## Post-MVP Ideas
+## Post-MVP
 
-Tracked here for future learning opportunities, not scheduled:
+Not scheduled. Tracked for future consideration:
 
-- **OAuth (Google login)** — how OAuth 2.0 flows work, passport.js
-- **Exact and percentage splits** — form mode switching, Zod discriminated unions
-- **File upload for group images** — multipart forms, Cloudflare R2 or Supabase Storage
-- **Multi-currency** — `currency` column, open exchange-rate APIs, rounding across currencies
-- **Recurring expenses** — cron jobs in Node.js, idempotency
-- **PWA** — service workers, offline support, "Add to Home Screen"
+- **OAuth (Google)** — passport.js or Auth0
+- **Exact / percentage splits** — schema is ready; needs form mode switching and updated split logic
+- **Group image upload** — replace external URL with object storage (Cloudflare R2 / Supabase Storage)
+- **Multi-currency** — `currency` column on expenses, open exchange-rate API
+- **PWA** — service worker, offline read access, "Add to Home Screen"
+- **Recurring expenses** — scheduled creation, idempotency key
