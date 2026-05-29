@@ -12,8 +12,8 @@ Incremental delivery, one phase per domain layer. Each phase ships a independent
 Establish the full-stack project structure with all tooling configured and a clean baseline build.
 
 **Deliverables**
-- Angular 21 project: standalone components, strict TypeScript, TailwindCSS v3 + PostCSS
-- Express project: folder structure, nodemon, environment validation via Zod on startup
+- Angular 21 project: standalone components, strict TypeScript, TailwindCSS v4 (CSS-first, `@tailwindcss/postcss`)
+- Express project (TypeScript, strict, ESM): folder structure, `tsx watch` dev runner, `tsc` build to `dist/`, environment validation via Zod on startup
 - Docker Compose: PostgreSQL 16 for local development
 - `vercel.json` with SPA rewrite for HTML5 routing
 - Angular `environment.ts` / `environment.prod.ts` with build-time file replacement wired in `angular.json`
@@ -21,8 +21,8 @@ Establish the full-stack project structure with all tooling configured and a cle
 
 **Notes**
 - Angular uses the `@angular/build:application` builder (esbuild-based, default in v17+)
-- Backend stays plain JavaScript — TypeScript adds friction without meaningful gain for an Express API at this scale
-- Tailwind v3 over v4: better Angular CLI integration, more ecosystem stability at time of writing
+- Backend is TypeScript (strict, ESM): typed handlers, Zod-inferred types (`z.infer`), `tsx watch` in dev, `tsc` → `dist/` for production. Chosen over plain JS to match modern production Node practice and to keep API contract types consistent with the typed frontend; the one-time toolchain setup is the accepted cost
+- Tailwind v4: CSS-first config (no `tailwind.config.js`), wired via `@tailwindcss/postcss` in `.postcssrc.json`; showcases the current Tailwind stack. Class-based dark mode declared with `@custom-variant dark` since v4 defaults to `prefers-color-scheme`
 
 ---
 
@@ -34,8 +34,8 @@ Define the complete PostgreSQL schema upfront. Every subsequent phase depends on
 **Deliverables**
 - Full schema: `users`, `groups`, `group_members`, `expenses`, `expense_splits`, `settlements`
 - `001_initial.sql` migration with constraints, enums, and indexes
-- `migrate.js` runner applying files in alphabetical order
-- `npm run migrate` script
+- `migrate.ts` runner applying files in alphabetical order
+- `pnpm migrate` script
 
 **Notes**
 - UUIDs (`uuid-ossp`) as primary keys — avoids sequential ID leakage, plays well with distributed inserts
@@ -113,7 +113,7 @@ Expense creation with equal splitting and per-group expense history.
 Debt-minimisation algorithm and settlement recording.
 
 **Deliverables**
-- `settlement.algorithm.js` — pure function, no I/O dependencies
+- `settlement.algorithm.ts` — pure function, no I/O dependencies
 - `GET /api/groups/:id/balances` — per-member net balance
 - `GET /api/groups/:id/settlements/suggested` — optimal transaction list
 - `POST /api/groups/:id/settlements` — record a payment
@@ -123,7 +123,7 @@ Debt-minimisation algorithm and settlement recording.
 
 **Notes**
 - Algorithm: greedy O(n log n) — separate creditors and debtors, match largest against largest. Optimal for the general case with small group sizes (n < 50)
-- Separating the pure function from `settlement.service.js` (which touches the DB) is what makes it trivially testable without mocking
+- Separating the pure function from `settlement.service.ts` (which touches the DB) is what makes it trivially testable without mocking
 - Suggested settlements are ephemeral (computed on request); only recorded settlements are persisted
 
 ---
@@ -134,7 +134,8 @@ Debt-minimisation algorithm and settlement recording.
 Production-quality UX: loading states, dark mode, notifications, responsive layout.
 
 **Deliverables**
-- Dark mode: class-based (`dark:` prefix), `ThemeService` persists preference in `localStorage`, respects `prefers-color-scheme` on first visit
+- Global component classes in `src/styles.css` — `.btn-primary`/`.btn-secondary`/`.btn-ghost`, `.card`/`.card-hover`, `.form-input`/`.form-label`, `.balance-positive`/`.balance-negative`/`.balance-zero` — authored with Tailwind v4 syntax (`@layer components { … @apply … }`; `@utility` for single-purpose utilities). No `@tailwind components` directive (removed in v4)
+- Dark mode: class-based via the `@custom-variant dark` declared in Phase 0 (`dark:` prefix), `ThemeService` persists preference in `localStorage`, respects `prefers-color-scheme` on first visit
 - Skeleton loading states on all data-fetching views
 - Toast notification system for user feedback (success / error)
 - Expense filter UI wired to API (category, month, payer)
@@ -143,6 +144,7 @@ Production-quality UX: loading states, dark mode, notifications, responsive layo
 - Responsive layout validated at mobile viewport
 
 **Notes**
+- Tailwind v4 authoring: component classes live in `@layer components` with `@apply`; custom utilities use the `@utility` API. Theme tokens (colors, spacing) are customised via `@theme { … }` in CSS, not a JS config. `@apply` used in a component-scoped stylesheet (outside `src/styles.css`) needs a `@reference "tailwindcss";` at the top of that file
 - Toast system uses a signal-based queue in a singleton service — no global state management library needed at this scale
 - Skeletons rather than spinners: avoids layout shift and feels more native on mobile
 
@@ -173,7 +175,7 @@ Live deployment on free-tier cloud with production configuration correct.
 
 **Deliverables**
 - Neon PostgreSQL provisioned, migrations applied, connection string with `sslmode=require`
-- Backend deployed to Render/Railway, health check passing, env vars set
+- Backend deployed to Render/Railway (build command `pnpm install && pnpm build`, start command `pnpm start`), health check passing, env vars set
 - Frontend deployed to Vercel, `vercel.json` SPA rewrite active, `apiUrl` pointing to backend
 - CORS origin updated to Vercel domain
 - README updated with live URLs

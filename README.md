@@ -11,8 +11,8 @@ Groups of users log shared expenses. CoSpend tracks balances and computes the mi
 | | Technology | Notes |
 |-|-----------|-------|
 | **Frontend** | Angular 21 | Standalone components, Signals, lazy-loaded routes |
-| **Styling** | TailwindCSS v3 | Class-based dark mode |
-| **Backend** | Node.js + Express 4 | Plain JS, no ORM |
+| **Styling** | TailwindCSS v4 | CSS-first config, class-based dark mode |
+| **Backend** | Node.js + Express 5 | TypeScript (ESM), no ORM |
 | **Database** | PostgreSQL 16 | `NUMERIC(12,2)` monetary amounts |
 | **Auth** | JWT + bcrypt | Stateless, long-lived token |
 | **Validation** | Zod | Schema-first, backend only |
@@ -57,7 +57,7 @@ CoSpend/
 
 ## Getting Started
 
-**Prerequisites:** Node.js ≥ 20, Docker
+**Prerequisites:** Node.js ≥ 20, pnpm ≥ 9, Docker
 
 ```bash
 # Database
@@ -66,14 +66,14 @@ docker-compose up -d
 # Backend
 cd backend
 cp .env.example .env    # set DATABASE_URL and JWT_SECRET
-npm install
-npm run migrate
-npm run dev             # http://localhost:3000
+pnpm install
+pnpm migrate
+pnpm dev                # http://localhost:3000
 
 # Frontend
 cd frontend
-npm install
-npx ng serve            # http://localhost:4200
+pnpm install
+pnpm exec ng serve      # http://localhost:4200
 ```
 
 ---
@@ -82,10 +82,10 @@ npx ng serve            # http://localhost:4200
 
 ```bash
 # Backend unit tests
-cd backend && npx jest
+cd backend && pnpm exec jest
 
 # Frontend build verification
-cd frontend && npx ng build --configuration production
+cd frontend && pnpm exec ng build --configuration production
 ```
 
 ---

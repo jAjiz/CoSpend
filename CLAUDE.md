@@ -9,11 +9,11 @@ This file is the persistent context for Claude Code sessions working on this pro
 CoSpend is a full-stack expense-sharing application. Angular 21 frontend, Express + Node.js backend, PostgreSQL database. Built as a serious single-developer portfolio project with production-quality standards.
 
 **Stack:**
-- Frontend: Angular 21, TailwindCSS v3, TypeScript (strict)
-- Backend: Node.js, Express 4, plain JavaScript
+- Frontend: Angular 21, TailwindCSS v4, TypeScript (strict)
+- Backend: Node.js, Express 5, TypeScript (strict, ESM)
 - Database: PostgreSQL 16
 - Auth: JWT (stateless, 30-day token)
-- Validation: Zod (backend only)
+- Validation: Zod (backend; also the source of inferred request types via `z.infer`)
 - Testing: Jest (unit), Playwright (E2E)
 
 ---
@@ -115,38 +115,40 @@ All pipes and directives must appear in the component's `imports` array.
 
 ### Styling
 
-TailwindCSS v3. Global utility classes defined in `src/styles.css`:
+TailwindCSS v4 (CSS-first config — no `tailwind.config.js`; wired via `@tailwindcss/postcss` in `.postcssrc.json`). Global utility classes defined in `src/styles.css`:
 
 - `.btn-primary`, `.btn-secondary`, `.btn-ghost`
 - `.card`, `.card-hover`
 - `.form-input`, `.form-label`
 - `.balance-positive`, `.balance-negative`, `.balance-zero`
 
-Dark mode is class-based. `ThemeService` manages `class="dark"` on `<html>`.
+These are authored with v4 syntax: component classes in `@layer components { … @apply … }`, single-purpose utilities via `@utility`, theme tokens via `@theme { … }`. `@apply` in a component-scoped stylesheet (not `src/styles.css`) requires `@reference "tailwindcss";` at the top of that file.
+
+Dark mode is class-based. `ThemeService` manages `class="dark"` on `<html>`. The `dark:` variant is declared in `styles.css` via `@custom-variant dark (&:where(.dark, .dark *))` — v4 defaults to `prefers-color-scheme`, so class-based mode is opt-in.
 
 Always use `CurrencyEurPipe` for monetary display — never `toLocaleString()` or manual formatting.
 
 ---
 
-## Backend — Express + Node.js
+## Backend — Express + Node.js (TypeScript)
 
 ### Conventions
 
-Plain JavaScript. No TypeScript on the backend.
+**TypeScript (strict), ESM modules.** Dev runs via `tsx watch` (no build step while developing); production is `tsc` → `dist/`, then `node dist/server.js`. Relative imports carry a `.js` extension (`import app from './app.js'`) — required by `NodeNext` resolution even though the source is `.ts`. Derive types from Zod schemas with `z.infer` rather than hand-writing parallel interfaces.
 
 **Validation at the boundary** — every route with a request body goes through `validate(schema)` middleware. No validation logic in controllers.
 
-```javascript
+```typescript
 router.post('/', validate(createGroupSchema), ctrl.create);
 ```
 
 **Thin controllers** — direct DB queries in controllers are fine. Extract to `services/` only when logic is shared or non-trivial (e.g., the settlement algorithm).
 
-**Error propagation** — always `next(err)` in catch blocks. Never call `res.status(500)` directly in route handlers.
+**Error propagation** — Express 5 automatically forwards errors thrown in (or rejected from) `async` handlers to the global error handler, so async handlers don't need a try/catch solely to call `next(err)`; let the error propagate. Catch only to add context, then `next(err)`. Never call `res.status(500)` directly in route handlers.
 
 **Parameterised queries only** — no string interpolation in SQL.
 
-```javascript
+```typescript
 pool.query('SELECT * FROM users WHERE id = $1', [id]);
 ```
 
@@ -154,7 +156,7 @@ pool.query('SELECT * FROM users WHERE id = $1', [id]);
 
 ### Error Handling
 
-Global error handler (`middleware/error.middleware.js`) maps PostgreSQL error codes:
+Global error handler (`middleware/error.middleware.ts`) maps PostgreSQL error codes:
 
 | Code | HTTP | Meaning |
 |------|------|---------|
@@ -193,25 +195,26 @@ balance = SUM(expenses.amount WHERE paid_by = user)
 ### Migrations
 
 `backend/src/db/migrations/`, named `001_initial.sql`, `002_...` etc.
-Runner: `npm run migrate` (applies in alphabetical order, no rollback in MVP).
+Runner: `pnpm migrate` (applies in alphabetical order, no rollback in MVP).
 
 ---
 
 ## Settlement Algorithm
 
-`backend/src/services/settlement.algorithm.js`
+`backend/src/services/settlement.algorithm.ts`
 
 Pure function — no DB dependency. Takes `Map<userId, netBalance>`, returns `{ fromUserId, toUserId, amount }[]` representing the minimum transaction set. O(n log n) greedy approach.
 
-The separation from `settlement.service.js` (which handles DB access) exists specifically to keep the algorithm unit-testable without mocking.
+The separation from `settlement.service.ts` (which handles DB access) exists specifically to keep the algorithm unit-testable without mocking.
 
 ---
 
 ## Testing
 
 ```bash
-cd backend && npx jest                                # unit tests
-cd frontend && npx ng build --configuration production # type + build check
+cd backend && pnpm exec tsc --noEmit                      # backend type check
+cd backend && pnpm exec jest                              # unit tests (ts-jest, configured in Phase 7)
+cd frontend && pnpm exec ng build --configuration production # type + build check
 ```
 
 E2E (Playwright) — Phase 7.
@@ -223,7 +226,7 @@ E2E (Playwright) — Phase 7.
 | Service | Role | Notes |
 |---------|------|-------|
 | Vercel | Frontend | `vercel.json` SPA rewrite configured |
-| Render / Railway | Backend | `npm start`, env vars in dashboard |
+| Render / Railway | Backend | `pnpm install && pnpm build` (tsc) then `pnpm start`, env vars in dashboard |
 | Neon | PostgreSQL | `DATABASE_URL` with `sslmode=require` |
 
 ---
